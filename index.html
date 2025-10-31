@@ -1,0 +1,1339 @@
+<!-- HERRAMIENTAS RCORP: Editor de Video Horizontal a Vertical (Split-Screen) -->
+<!--
+    Este editor permite tomar un video horizontal y dividirlo en dos mitades (izquierda y derecha),
+    posicionándolas en un lienzo vertical (arriba y abajo) de forma independiente.
+
+    Funcionalidades:
+    1. Carga de video independiente para la parte superior e inferior del split-screen.
+    2. Lienzo independiente 9:16 para un solo video, con todos sus controles.
+    3. LÍNEAS DE TIEMPO INDEPENDIENTES.
+    4. Controles de Zoom, Posición Horizontal y Vertical (Y) CON VALOR NUMÉRICO VISIBLE.
+    5. Botón para intercambiar las posiciones Superior/Inferior.
+    6. Función de grabación para exportar el resultado final.
+    7. Fondo 9:16: Permite cargar una imagen de fondo (Carga por defecto la URL provista).
+    8. Controles de Recorte de Duración (Trim In/Out) para el video único y Split-Screen.
+    9. Botones de SILENCIAR/VOLUMEN añadidos a cada línea de tiempo.
+-->
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HERRAMIENTAS RCORP</title>
+    <!-- Carga de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos personalizados para el canvas y los controles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1f2937; /* Fondo oscuro */
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container-app {
+            background-color: #111827; /* Contenedor principal oscuro */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            border-radius: 1rem;
+            padding: 2rem;
+            width: 100%;
+            max-width: 1400px;
+            /* Dos columnas: PREVIEW | CONTROLES */
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+        .control-panel {
+            background-color: #374151; /* Panel de control oscuro */
+            padding: 1rem;
+            border-radius: 0.75rem;
+        }
+        /* Ocultar elementos de video */
+        #videoSourceTop, #videoSourceBottom, #videoSourceSingle {
+            display: none;
+        }
+        /* Estilo para los sliders */
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #6366f1; /* Indigo */
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+        /* Estilo para los botones principales */
+        .btn-primary {
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .btn-primary:hover {
+            background-color: #4f46e5;
+            transform: translateY(-1px);
+        }
+        .btn-control {
+            background-color: #4b5563; /* Gris oscuro para controles */
+            color: #d1d5db; /* Texto claro */
+        }
+        .btn-control:hover {
+            background-color: #374151;
+        }
+
+        /* Estilo para los controles de tiempo y grabación */
+        #mediaControls {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            background-color: #374151; /* Fondo de controles de medios oscuro */
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .timeline-wrapper {
+            flex-grow: 1;
+            margin: 0 1rem;
+        }
+        /* Estilos específicos para el canvas 9:16 */
+        #singleCanvas {
+            max-width: 300px; /* Limita el ancho del canvas 9:16 para que se vea vertical */
+            height: auto;
+            aspect-ratio: 9/16;
+        }
+        .trim-controls-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            background-color: #374151;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.2);
+        }
+        .trim-slider {
+            flex-basis: 48%; /* Da espacio para ambos sliders de trim */
+        }
+        .crop-controls-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            background-color: #2c3440; /* Tono más oscuro para diferenciar */
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.2);
+            border: 1px solid #4b5563;
+        }
+
+        @media (max-width: 1024px) {
+            .container-app {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body class="p-4 bg-gray-900 text-gray-100">
+
+    <!-- Videos de fuente (ocultos) -->
+    <video id="videoSourceTop" crossorigin="anonymous"></video>
+    <video id="videoSourceBottom" crossorigin="anonymous"></video>
+    <video id="videoSourceSingle" crossorigin="anonymous"></video>
+
+    <div class="container-app bg-gray-800">
+
+        <!-- Columna Izquierda: PREVISUALIZACIONES (Canvases y Líneas de Tiempo) -->
+        <div id="previewColumn" class="flex flex-col items-center space-y-8 order-first lg:order-first">
+            
+            <h1 class="text-4xl font-extrabold text-center text-indigo-400">HERRAMIENTAS RCORP</h1>
+            <p class="text-sm font-medium text-gray-500 mb-4">Creador: Miguel Rivas</p>
+            <h2 id="statusMessage" class="text-lg font-medium text-gray-400">Cargue ambos videos para Split-Screen o el video 9:16 para edición vertical.</h2>
+
+            <!-- SECCIÓN SPLIT-SCREEN (1:2) -->
+            <h3 class="text-2xl font-bold text-gray-200">Previsualización Split-Screen (1:2)</h3>
+            
+            <!-- LÍNEA DE TIEMPO SUPERIOR (Controla Video Top) -->
+            <div id="timelineTop" class="w-full flex items-center space-x-2 bg-gray-700 p-2 rounded-lg opacity-50">
+                <span id="currentTimeTop" class="text-sm font-mono text-gray-300 w-12 text-center">00:00</span>
+                <div class="timeline-wrapper">
+                    <input type="range" id="timelineRangeTop" min="0" max="1" step="0.01" value="0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <span id="durationTop" class="text-sm font-mono text-gray-300 w-12 text-center">00:00</span>
+                
+                <!-- BOTÓN SILENCIAR/VOLUMEN SUPERIOR -->
+                <button id="muteTopBtn" disabled onclick="toggleMute('top')"
+                    class="bg-gray-600 hover:bg-gray-500 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="volumeIconTop" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 3c-1.39 0-2.8.22-4.14.65C4.24 4.09 3 5.43 3 7v6c0 1.57 1.24 2.91 2.86 3.35C7.2 16.78 8.61 17 10 17s2.8-.22 4.14-.65c1.62-.44 2.86-1.78 2.86-3.35V7c0-1.57-1.24-2.91-2.86-3.35C12.8 3.22 11.39 3 10 3z" clip-rule="evenodd"/>
+                    </svg>
+                    <svg id="muteIconTop" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M11.9 14.5a.75.75 0 01-1.4 0L7 9.5a.75.75 0 011.4-1l2.5 2.5 2.5-2.5a.75.75 0 011.06 1.06l-2.5 2.5 2.5 2.5a.75.75 0 11-1.06 1.06l-2.5-2.5-2.5 2.5z" clip-rule="evenodd"/>
+                    </svg>
+                </button>
+                
+                <button id="playPauseTopBtn" disabled
+                    class="bg-indigo-500 hover:bg-indigo-600 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="playIconTop" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M6.3 5.05c.31-.19.69-.19 1.01 0l7.5 4.63c.31.19.31.67 0 .86l-7.5 4.63c-.31.19-.69.19-1.01 0-.32-.19-.32-.67 0-.86L13.19 10 6.3 5.91c.32-.19.32-.67 0-.86z"/>
+                    </svg>
+                    <svg id="pauseIconTop" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M5 4h3v12H5zm7 0h3v12h-3z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- CONTROLES DE TRIM DE DURACIÓN SUPERIOR AÑADIDOS AQUÍ -->
+            <div id="trimControlsTop" class="trim-controls-wrapper opacity-50">
+                <div class="trim-slider">
+                    <label for="trimStartTopRange" class="block text-sm font-medium text-gray-400">
+                        Clip Inicio (Sup.): <span id="trimStartTopValue" class="font-mono text-indigo-400">00:00</span>
+                    </label>
+                    <input type="range" id="trimStartTopRange" min="0" max="0" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="trim-slider">
+                    <label for="trimEndTopRange" class="block text-sm font-medium text-gray-400">
+                        Clip Fin (Sup.): <span id="trimEndTopValue" class="font-mono text-indigo-400">00:00</span>
+                    </label>
+                    <input type="range" id="trimEndTopRange" min="0" max="0" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+
+            <!-- Canvas Split-Screen -->
+            <canvas id="splitScreenCanvas" class="w-full h-auto bg-gray-900 shadow-xl rounded-lg"></canvas>
+
+            <!-- LÍNEA DE TIEMPO INFERIOR (Controla Video Bottom) -->
+            <div id="timelineBottom" class="w-full flex items-center space-x-2 bg-gray-700 p-2 rounded-lg opacity-50">
+                <span id="currentTimeBottom" class="text-sm font-mono text-gray-300 w-12 text-center">00:00</span>
+                <div class="timeline-wrapper">
+                    <input type="range" id="timelineRangeBottom" min="0" max="1" step="0.01" value="0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <span id="durationBottom" class="text-sm font-mono text-gray-300 w-12 text-center">00:00</span>
+                
+                <!-- BOTÓN SILENCIAR/VOLUMEN INFERIOR -->
+                <button id="muteBottomBtn" disabled onclick="toggleMute('bottom')"
+                    class="bg-gray-600 hover:bg-gray-500 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="volumeIconBottom" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 3c-1.39 0-2.8.22-4.14.65C4.24 4.09 3 5.43 3 7v6c0 1.57 1.24 2.91 2.86 3.35C7.2 16.78 8.61 17 10 17s2.8-.22 4.14-.65c1.62-.44 2.86-1.78 2.86-3.35V7c0-1.57-1.24-2.91-2.86-3.35C12.8 3.22 11.39 3 10 3z" clip-rule="evenodd"/>
+                    </svg>
+                    <svg id="muteIconBottom" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M11.9 14.5a.75.75 0 01-1.4 0L7 9.5a.75.75 0 011.4-1l2.5 2.5 2.5-2.5a.75.75 0 011.06 1.06l-2.5 2.5 2.5 2.5a.75.75 0 11-1.06 1.06l-2.5-2.5-2.5 2.5z" clip-rule="evenodd"/>
+                    </svg>
+                </button>
+
+                <button id="playPauseBottomBtn" disabled
+                    class="bg-indigo-500 hover:bg-indigo-600 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="playIconBottom" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M6.3 5.05c.31-.19.69-.19 1.01 0l7.5 4.63c.31.19.31.67 0 .86l-7.5 4.63c-.31.19-.69.19-1.01 0-.32-.19-.32-.67 0-.86L13.19 10 6.3 5.91c.32-.19.32-.67 0-.86z"/>
+                    </svg>
+                    <svg id="pauseIconBottom" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M5 4h3v12H5zm7 0h3v12h-3z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- CONTROLES DE TRIM DE DURACIÓN INFERIOR AÑADIDOS AQUÍ -->
+            <div id="trimControlsBottom" class="trim-controls-wrapper opacity-50">
+                <div class="trim-slider">
+                    <label for="trimStartBottomRange" class="block text-sm font-medium text-gray-400">
+                        Clip Inicio (Inf.): <span id="trimStartBottomValue" class="font-mono text-indigo-400">00:00</span>
+                    </label>
+                    <input type="range" id="trimStartBottomRange" min="0" max="0" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="trim-slider">
+                    <label for="trimEndBottomRange" class="block text-sm font-medium text-gray-400">
+                        Clip Fin (Inf.): <span id="trimEndBottomValue" class="font-mono text-indigo-400">00:00</span>
+                    </label>
+                    <input type="range" id="trimEndBottomRange" min="0" max="0" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+
+            <!-- SECCIÓN VIDEO ÚNICO (9:16) -->
+            <h3 class="text-2xl font-bold text-gray-200 mt-6">Previsualización Vertical (9:16)</h3>
+
+            <!-- LÍNEA DE TIEMPO ÚNICA (Controla Video Single) -->
+            <div id="timelineSingle" class="w-full flex items-center space-x-2 bg-gray-700 p-2 rounded-lg opacity-50">
+                <span id="currentTimeSingle" class="text-sm font-mono text-gray-300 w-12 text-center">00:00</span>
+                <div class="timeline-wrapper">
+                    <input type="range" id="timelineRangeSingle" min="0" max="1" step="0.01" value="0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <span id="durationSingle" class="text-sm font-mono text-gray-300 w-12 text-center">00:00</span>
+                
+                <!-- BOTÓN SILENCIAR/VOLUMEN ÚNICO -->
+                <button id="muteSingleBtn" disabled onclick="toggleMute('single')"
+                    class="bg-gray-600 hover:bg-gray-500 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="volumeIconSingle" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 3c-1.39 0-2.8.22-4.14.65C4.24 4.09 3 5.43 3 7v6c0 1.57 1.24 2.91 2.86 3.35C7.2 16.78 8.61 17 10 17s2.8-.22 4.14-.65c1.62-.44 2.86-1.78 2.86-3.35V7c0-1.57-1.24-2.91-2.86-3.35C12.8 3.22 11.39 3 10 3z" clip-rule="evenodd"/>
+                    </svg>
+                    <svg id="muteIconSingle" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M11.9 14.5a.75.75 0 01-1.4 0L7 9.5a.75.75 0 011.4-1l2.5 2.5 2.5-2.5a.75.75 0 011.06 1.06l-2.5 2.5 2.5 2.5a.75.75 0 11-1.06 1.06l-2.5-2.5-2.5 2.5z" clip-rule="evenodd"/>
+                    </svg>
+                </button>
+
+                <button id="playPauseSingleBtn" disabled
+                    class="bg-indigo-500 hover:bg-indigo-600 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg id="playIconSingle" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M6.3 5.05c.31-.19.69-.19 1.01 0l7.5 4.63c.31.19.31.67 0 .86l-7.5 4.63c-.31.19-.69.19-1.01 0-.32-.19-.32-.67 0-.86L13.19 10 6.3 5.91c.32-.19.32-.67 0-.86z"/>
+                    </svg>
+                    <svg id="pauseIconSingle" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M5 4h3v12H5zm7 0h3v12h-3z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- CONTROLES DE RECORTE DE DURACIÓN (TRIM) ÚNICO -->
+            <div id="trimControlsSingle" class="trim-controls-wrapper opacity-50">
+                <div class="trim-slider">
+                    <label for="trimStartRange" class="block text-sm font-medium text-gray-400">
+                        Inicio de Clip: <span id="trimStartValue" class="font-mono text-indigo-400">00:00</span>
+                    </label>
+                    <input type="range" id="trimStartRange" min="0" max="0" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="trim-slider">
+                    <label for="trimEndRange" class="block text-sm font-medium text-gray-400">
+                        Fin de Clip: <span id="trimEndValue" class="font-mono text-indigo-400">00:00</span>
+                    </label>
+                    <input type="range" id="trimEndRange" min="0" max="0" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Canvas de Video Único (9:16) -->
+            <canvas id="singleCanvas" class="bg-gray-900 shadow-xl rounded-lg"></canvas>
+
+            <!-- Controles de Grabación Única (NUEVO) -->
+            <div class="control-panel bg-gray-700 p-4 space-y-3 w-full">
+                <h2 class="text-xl font-semibold text-red-400">Exportar Video Único (9:16)</h2>
+                <div class="flex flex-col space-y-2">
+                    <p class="text-sm text-gray-400">El resultado es un archivo WebM con audio. No es posible grabar en MP4 desde el navegador.</p>
+                    
+                    <button id="generateDownloadSingleBtn" disabled
+                        class="btn-primary bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        Generar y Descargar Clip (9:16)
+                    </button>
+                    
+                    <a id="downloadLinkSingle" href="#" download="rcorp_video_unico_editado.webm"
+                        class="hidden text-center bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors mt-2">
+                        Descargando...
+                    </a>
+                </div>
+            </div>
+            <!-- Fin Controles de Grabación Única -->
+
+        </div>
+
+
+        <!-- Columna Derecha: CONTROLES Y CONFIGURACIÓN -->
+        <div id="controlsColumn" class="flex flex-col space-y-4 order-last lg:order-last">
+            
+            <!-- PANEL DE CONTROL ÚNICO (COMPOSICIÓN) - AHORA ARRIBA -->
+            <div id="controlsSinglePanel" class="control-panel bg-gray-700 space-y-4">
+                <h3 class="text-lg font-bold text-center text-red-400">CONTROL DE COMPOSICIÓN (9:16)</h3>
+
+                <input type="file" id="fileInputSingle" accept="video/mp4,video/quicktime"
+                       class="w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-red-500 file:text-white hover:file:bg-red-600">
+
+                <!-- Campo para Cargar Imagen de Fondo por Archivo -->
+                <div class="space-y-2">
+                    <label for="fileInputImageSingle" class="block text-sm font-medium text-gray-300">Cargar Imagen de Fondo (9:16)</label>
+                    <input type="file" id="fileInputImageSingle" accept="image/*"
+                           class="w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-500 file:text-white hover:file:bg-gray-600">
+                </div>
+                <!-- Fin Campo Imagen de Fondo -->
+                
+                <!-- Controles de Composición -->
+                <div class="space-y-2 pt-4 border-t border-gray-600">
+                    <label for="scaleSingleRange" class="block text-sm font-medium text-gray-300">
+                        Zoom / Escala Única: <span id="scaleSingleValue" class="font-mono text-indigo-400">1.27x</span>
+                    </label>
+                    <input type="range" id="scaleSingleRange" min="0.1" max="5" step="0.01" value="1.27" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-2">
+                    <label for="offsetXSingleRange" class="block text-sm font-medium text-gray-300">
+                        Posición Horizontal X Única: <span id="offsetXSingleValue" class="font-mono text-indigo-400">0.00</span>
+                    </label>
+                    <input type="range" id="offsetXSingleRange" min="-0.5" max="0.5" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-2">
+                    <label for="offsetYSingleRange" class="block text-sm font-medium text-gray-300">
+                        Posición Vertical Y Única: <span id="offsetYSingleValue" class="font-mono text-indigo-400">0.00</span>
+                    </label>
+                    <input type="range" id="offsetYSingleRange" min="-0.5" max="0.5" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+            <!-- FIN PANEL CONTROL ÚNICO -->
+
+
+            <!-- PANEL DE CONTROL GLOBAL SPLIT-SCREEN -->
+            <div class="control-panel bg-gray-700 p-4 space-y-3">
+                <h2 class="text-xl font-semibold mb-2 text-indigo-400">Configuración Global Split-Screen</h2>
+                
+                <!-- Botones de Intercambio y División -->
+                <div class="flex space-x-2 mb-4">
+                    <button id="toggleSwapBtn" disabled
+                        class="flex-1 btn-control py-2 px-4 rounded-lg font-medium shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 bg-gray-600 hover:bg-gray-500">
+                        Intercambiar Posición (Arriba/Abajo)
+                    </button>
+                    <!-- Control de Punto de División X -->
+                    <div class="w-1/2">
+                        <label for="splitXRange" class="block text-sm font-medium text-gray-300">Punto de División X (50% por defecto)</label>
+                        <input type="range" id="splitXRange" min="0.2" max="0.8" step="0.01" value="0.5" disabled
+                            class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+            </div>
+            
+
+            <!-- Panel de Control SUPERIOR (Mitad del Video Original) -->
+            <div id="controlsTopPanel" class="control-panel bg-gray-700 space-y-4">
+                <h3 class="text-lg font-bold text-center text-indigo-400">SPLIT-SCREEN: PARTE SUPERIOR <span id="topSourceText" class="text-gray-400 font-medium">(Cargar video)</span></h3>
+
+                <input type="file" id="fileInputTop" accept="video/mp4,video/quicktime"
+                       class="w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-500 file:text-white hover:file:bg-violet-600">
+
+                <!-- CONTROLES DE COMPOSICIÓN -->
+                <div class="space-y-2 pt-4 border-t border-gray-600">
+                    <label for="scaleTopRange" class="block text-sm font-medium text-gray-300">
+                        Zoom / Escala Superior: <span id="scaleTopValue" class="font-mono text-indigo-400">1.00</span>x
+                    </label>
+                    <input type="range" id="scaleTopRange" min="1" max="5" step="0.01" value="1.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-2">
+                    <label for="offsetXTopRange" class="block text-sm font-medium text-gray-300">
+                        Posición Horizontal X Superior: <span id="offsetXTopValue" class="font-mono text-indigo-400">0.00</span>
+                    </label>
+                    <input type="range" id="offsetXTopRange" min="-0.5" max="0.5" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-2">
+                    <label for="offsetYTopRange" class="block text-sm font-medium text-gray-300">
+                        Posición Vertical Y Superior: <span id="offsetYTopValue" class="font-mono text-indigo-400">0.00</span>
+                    </label>
+                    <input type="range" id="offsetYTopRange" min="-0.5" max="0.5" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Panel de Control INFERIOR (Mitad Derecha del Video Original) -->
+            <div id="controlsBottomPanel" class="control-panel bg-gray-700 space-y-4">
+                <h3 class="text-lg font-bold text-center text-indigo-400">SPLIT-SCREEN: PARTE INFERIOR <span id="bottomSourceText" class="text-gray-400 font-medium">(Cargar video)</span></h3>
+
+                <input type="file" id="fileInputBottom" accept="video/mp4,video/quicktime"
+                       class="w-full text-sm text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-500 file:text-white hover:file:bg-violet-600">
+
+                <!-- CONTROLES DE COMPOSICIÓN -->
+                <div class="space-y-2 pt-4 border-t border-gray-600">
+                    <label for="scaleBottomRange" class="block text-sm font-medium text-gray-300">
+                        Zoom / Escala Inferior: <span id="scaleBottomValue" class="font-mono text-indigo-400">1.00</span>x
+                    </label>
+                    <input type="range" id="scaleBottomRange" min="1" max="5" step="0.01" value="1.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-2">
+                    <label for="offsetXBottomRange" class="block text-sm font-medium text-gray-300">
+                        Posición Horizontal X Inferior: <span id="offsetXBottomValue" class="font-mono text-indigo-400">0.00</span>
+                    </label>
+                    <input type="range" id="offsetXBottomRange" min="-0.5" max="0.5" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="space-y-2">
+                    <label for="offsetYBottomRange" class="block text-sm font-medium text-gray-300">
+                        Posición Vertical Y Inferior: <span id="offsetYBottomValue" class="font-mono text-indigo-400">0.00</span>
+                    </label>
+                    <input type="range" id="offsetYBottomRange" min="-0.5" max="0.5" step="0.01" value="0.0" disabled
+                        class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+            
+             <!-- Controles de Grabación Split-Screen -->
+            <div class="control-panel bg-gray-700 p-4 space-y-3">
+                <h2 class="text-xl font-semibold mt-4 text-indigo-400">Exportar Video Split-Screen (1:2)</h2>
+                <div class="flex flex-col space-y-2">
+                    <p class="text-sm text-gray-400">La grabación captura solo la previsualización Split-Screen (1:2).</p>
+                    <button id="startRecordingBtn" disabled
+                        class="btn-primary bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onclick="toggleRecording('start', 'split')">
+                        Iniciar Grabación
+                    </button>
+                    <button id="stopRecordingBtn" disabled
+                        class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onclick="toggleRecording('stop', 'split')">
+                        Detener Grabación
+                    </button>
+                    <a id="downloadLink" href="#" download="rcorp_video_editado.webm"
+                        class="hidden text-center bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors mt-2">
+                        Descargar Video Editado
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // URL de la imagen proporcionada por el usuario (FONDO PREDETERMINADO)
+        const DEFAULT_IMGUR_URL = "https://i.imgur.com/WfBazQx.png";
+
+        // Definiciones de estado global
+        let canvas, ctx; // Para Split-Screen
+        let singleCanvas, singleCtx; // Para Video Único (9:16)
+        
+        let videoTop, videoBottom, videoSingle;
+        let isTopReady = false;
+        let isBottomReady = false;
+        let isSingleReady = false;
+        
+        let backgroundImageSingle = null; 
+        
+        // Variables de grabación SPLIT-SCREEN
+        let videoRecorderSplit = null;
+        let recordedChunksSplit = [];
+        let isRecordingSplit = false;
+
+        // Variables de grabación SINGLE (9:16)
+        let videoRecorderSingle = null;
+        let recordedChunksSingle = [];
+        let isRecordingSingle = false;
+        let recordingTimeoutId = null; // ID del temporizador para la detención automática
+        
+        let isSwapped = false; 
+
+        // Definiciones de parámetros de composición (valores iniciales)
+        let compositionSettings = {
+            splitX: 0.5, // Punto de división horizontal del video original (0.5 = mitad)
+            top: {
+                scale: 1.0,
+                offsetX: 0.0,
+                offsetY: 0.0,
+                trimStart: 0.0, // NUEVO: Tiempo de inicio del clip
+                trimEnd: 0.0,   // NUEVO: Tiempo de fin del clip
+            },
+            bottom: {
+                scale: 1.0,
+                offsetX: 0.0,
+                offsetY: 0.0,
+                trimStart: 0.0, // NUEVO: Tiempo de inicio del clip
+                trimEnd: 0.0,   // NUEVO: Tiempo de fin del clip
+            },
+            single: { // Nuevo para el video 9:16
+                scale: 1.27, // VALOR POR DEFECTO 1.27X
+                offsetX: 0.0,
+                offsetY: 0.0,
+                trimStart: 0.0, // Tiempo de inicio del clip (segundos)
+                trimEnd: 0.0,   // Tiempo de fin del clip (segundos)
+            }
+        };
+
+        // --- FUNCIONES DE UTILIDAD ---
+
+        function formatTime(seconds) {
+            if (isNaN(seconds) || seconds < 0) return '00:00';
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+        }
+        
+        // Función para actualizar los valores numéricos de los sliders
+        function updateSliderValue(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                // Formatear a 2 decimales para la visualización
+                element.textContent = parseFloat(value).toFixed(2);
+                
+                if (id.includes('scale')) {
+                    element.textContent += 'x';
+                }
+            }
+        }
+        
+        // --- LÓGICA DE CARGA DE VIDEO Y IMAGEN ---
+
+        function loadVideo(event, target) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const videoElement = (target === 'top') ? videoTop : (target === 'bottom' ? videoBottom : videoSingle);
+            const statusTextElement = (target === 'top') ? document.getElementById('topSourceText') : (target === 'bottom' ? document.getElementById('bottomSourceText') : document.getElementById('statusMessage'));
+
+            statusTextElement.textContent = 'Cargando...';
+
+            // Usar FileReader para crear un Object URL único y forzar una carga fresca
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // Limpiar URLs anteriores
+                if (videoElement.src) {
+                    URL.revokeObjectURL(videoElement.src);
+                }
+
+                const blob = new Blob([e.target.result], { type: file.type });
+                const videoURL = URL.createObjectURL(blob);
+
+                videoElement.src = videoURL;
+                videoElement.load(); // Forzar la recarga
+
+                videoElement.onloadedmetadata = function() {
+                    const width = videoElement.videoWidth;
+                    const height = videoElement.videoHeight;
+                    const duration = videoElement.duration;
+                    
+                    if (target === 'single') {
+                        isSingleReady = true;
+                        document.getElementById('statusMessage').textContent = `Video 9:16 listo.`;
+                        // Inicializar el canvas 9:16 (relación 9:16)
+                        singleCanvas.width = 900;
+                        singleCanvas.height = 1600;
+                        
+                        // Inicializar TRIM CONTROLS
+                        compositionSettings.single.trimEnd = duration;
+                        
+                        document.getElementById('trimStartRange').max = duration;
+                        document.getElementById('trimEndRange').max = duration;
+                        document.getElementById('trimEndRange').value = duration;
+                        document.getElementById('trimStartRange').disabled = false;
+                        document.getElementById('trimEndRange').disabled = false;
+                        document.getElementById('trimControlsSingle').classList.remove('opacity-50'); 
+                        document.getElementById('trimEndValue').textContent = formatTime(duration);
+                        document.getElementById('generateDownloadSingleBtn').disabled = false; // Habilitar el botón de descarga
+                        
+                    } else if (target === 'top' || target === 'bottom') {
+                         if (width <= height) {
+                            alert(`¡Advertencia! El video cargado en la parte ${target.toUpperCase()} no parece ser horizontal (${width}x${height}). Esto puede afectar la división.`);
+                        }
+
+                        // Inicializar TRIM CONTROLS para Split-Screen
+                        const trimStartRange = document.getElementById(`trimStart${target === 'top' ? 'Top' : 'Bottom'}Range`);
+                        const trimEndRange = document.getElementById(`trimEnd${target === 'top' ? 'Top' : 'Bottom'}Range`);
+                        const trimEndValue = document.getElementById(`trimEnd${target === 'top' ? 'Top' : 'Bottom'}Value`);
+                        const trimControls = document.getElementById(`trimControls${target === 'top' ? 'Top' : 'Bottom'}`);
+                        
+                        compositionSettings[target].trimEnd = duration;
+                        trimStartRange.max = duration;
+                        trimEndRange.max = duration;
+                        trimEndRange.value = duration;
+
+                        trimStartRange.disabled = false;
+                        trimEndRange.disabled = false;
+                        trimControls.classList.remove('opacity-50');
+                        trimEndValue.textContent = formatTime(duration);
+                    }
+                    
+                    if (target === 'top') {
+                        isTopReady = true;
+                        document.getElementById('topSourceText').textContent = `LISTO (${width}x${height})`;
+                    } else if (target === 'bottom') {
+                        isBottomReady = true;
+                        document.getElementById('bottomSourceText').textContent = `LISTO (${width}x${height})`;
+                    }
+                    
+                    initializeTimeline(target, videoElement);
+                    checkAllReady();
+                };
+
+                videoElement.onerror = function() {
+                    statusTextElement.textContent = 'ERROR al cargar el video.';
+                    console.error(`Error cargando el video ${target}. Posiblemente un códec no compatible.`);
+                    if (target === 'top') isTopReady = false;
+                    if (target === 'bottom') isBottomReady = false;
+                    if (target === 'single') isSingleReady = false;
+                };
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        
+        function loadBackgroundImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            
+            img.onload = () => {
+                backgroundImageSingle = img;
+                // Actualizar la visualización de la etiqueta del archivo (aunque el estilo del file input lo complica, esto es un intento)
+                const label = document.querySelector('label[for="fileInputImageSingle"]');
+                if (label) {
+                    label.textContent = `Cargar Imagen de Fondo (9:16) [Actual: ${file.name}]`;
+                }
+                drawFrame(); // Forzar redibujo
+            };
+            
+            img.onerror = () => {
+                backgroundImageSingle = null;
+                alert('Error al cargar la imagen de fondo. Intente con otro archivo.');
+            };
+
+            img.src = URL.createObjectURL(file);
+        }
+
+
+        function checkAllReady() {
+            const statusMessage = document.getElementById('statusMessage');
+            const toggleSwapBtn = document.getElementById('toggleSwapBtn');
+            const splitXRange = document.getElementById('splitXRange');
+            const startRecordingBtn = document.getElementById('startRecordingBtn');
+
+            const splitReady = isTopReady && isBottomReady;
+
+            if (splitReady) {
+                statusMessage.textContent = '¡Videos Split-Screen listos!';
+                toggleSwapBtn.disabled = false;
+                splitXRange.disabled = false;
+                startRecordingBtn.disabled = false;
+                
+                const baseWidth = Math.max(videoTop.videoWidth, videoBottom.videoWidth);
+                const baseHeight = Math.max(videoTop.videoHeight, videoBottom.videoHeight);
+
+                canvas.width = baseWidth; 
+                canvas.height = baseHeight * 2; 
+
+                const containerWidth = document.getElementById('previewColumn').clientWidth;
+                canvas.style.width = containerWidth * 0.9 + 'px';
+                canvas.style.height = (containerWidth * 0.9 * 2) + 'px'; 
+
+            } else if (isSingleReady) {
+                 statusMessage.textContent = 'Video 9:16 cargado. Cargue ambos videos para Split-Screen.';
+            } else {
+                 statusMessage.textContent = 'Cargue ambos videos para Split-Screen o el video 9:16 para edición vertical.';
+            }
+        }
+
+        // --- LÓGICA DE DIBUJO ---
+
+        function drawFrame() {
+            // Dibuja Split-Screen (1:2)
+            if (isTopReady && isBottomReady) {
+                // Lógica de dibujo Split-Screen (sin cambios)
+                try {
+                    const refW = Math.max(videoTop.videoWidth, videoBottom.videoWidth);
+                    const refH = Math.max(videoTop.videoHeight, videoBottom.videoHeight);
+                    
+                    const splitX = refW * compositionSettings.splitX;
+
+                    const canvasW = canvas.width;
+                    const canvasH = canvas.height;
+                    const outputH = canvasH / 2;
+
+                    ctx.clearRect(0, 0, canvasW, canvasH);
+                    ctx.fillStyle = '#111827'; 
+                    ctx.fillRect(0, 0, canvasW, canvasH);
+
+                    const topVideo = isSwapped ? videoBottom : videoTop;
+                    const bottomVideo = isSwapped ? videoTop : videoBottom;
+                    const topSettings = isSwapped ? compositionSettings.bottom : compositionSettings.top;
+                    const bottomSettings = isSwapped ? compositionSettings.top : compositionSettings.bottom;
+
+                    // --- CÁLCULOS SUPERIOR ---
+                    if (topVideo.readyState >= 2) {
+                        const videoH = topVideo.videoHeight;
+                        const scale = topSettings.scale;
+                        
+                        // Recorte horizontal del video original (zona Izquierda)
+                        const srcX = 0; 
+                        const srcW = splitX; 
+                        
+                        const destW = canvasW * scale;
+                        const destH = videoH * scale;
+
+                        const destX = (canvasW - destW) / 2 + (topSettings.offsetX * canvasW);
+                        const destY = (outputH - destH) / 2 + (topSettings.offsetY * outputH);
+
+                        ctx.drawImage(topVideo, srcX, 0, srcW, videoH, destX, destY, destW, destH);
+                        
+                        // Lógica de TRIM (Loop)
+                        if (topVideo.currentTime >= topSettings.trimEnd) {
+                            topVideo.currentTime = topSettings.trimStart; 
+                        }
+                    }
+                    // --- FIN CÁLCULOS SUPERIOR ---
+
+
+                    // --- CÁLCULOS INFERIOR ---
+                    if (bottomVideo.readyState >= 2) {
+                        const videoH = bottomVideo.videoHeight;
+                        const scale = bottomSettings.scale;
+                        
+                        // Recorte horizontal del video original (zona Derecha)
+                        const srcX = splitX; 
+                        const srcW = refW - splitX; 
+                        
+                        const destW = canvasW * scale;
+                        const destH = videoH * scale;
+
+                        const destX = (canvasW - destW) / 2 + (bottomSettings.offsetX * canvasW);
+                        const destY = outputH + (outputH - destH) / 2 + (bottomSettings.offsetY * outputH);
+
+                        ctx.drawImage(bottomVideo, srcX, 0, srcW, videoH, destX, destY, destW, destH);
+
+                        // Lógica de TRIM (Loop)
+                         if (bottomVideo.currentTime >= bottomSettings.trimEnd) {
+                            bottomVideo.currentTime = bottomSettings.trimStart; 
+                        }
+                    }
+                } catch (e) {
+                     // console.error("Error en drawFrame Split-Screen:", e.message);
+                }
+            }
+
+            // Dibuja Video Único (9:16)
+            if (isSingleReady || backgroundImageSingle) {
+                try {
+                    const video = videoSingle;
+                    const ctx = singleCtx;
+                    const settings = compositionSettings.single;
+                    
+                    const videoW = isSingleReady ? video.videoWidth : 1; 
+                    const videoH = isSingleReady ? video.videoHeight : 1;
+                    
+                    const canvasW = singleCanvas.width;
+                    const canvasH = singleCanvas.height;
+                    
+                    const scale = settings.scale;
+
+                    ctx.clearRect(0, 0, canvasW, canvasH);
+                    ctx.fillStyle = '#111827'; 
+                    ctx.fillRect(0, 0, canvasW, canvasH);
+                    
+                    // 1. DIBUJAR IMAGEN DE FONDO (Contain mode implícito)
+                    if (backgroundImageSingle) {
+                        const img = backgroundImageSingle;
+                        
+                        // Usar CONTAIN (Math.min) para garantizar que la imagen 9:16 no se deforme.
+                        const scaleFactor = Math.min(canvasW / img.width, canvasH / img.height);
+                        
+                        const drawWidth = img.width * scaleFactor;
+                        const drawHeight = img.height * scaleFactor;
+
+                        // Centrar la imagen
+                        const drawX = (canvasW - drawWidth) / 2;
+                        const drawY = (canvasH - drawHeight) / 2;
+
+                        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+                    }
+                    
+                    // 2. DIBUJAR VIDEO ENFRENTE (Aplicando Zoom y Posición)
+                    if (isSingleReady && video.readyState >= 2) {
+                        let coverageScale = 1; 
+                        
+                        const srcX = 0;
+                        const srcW = videoW;
+                        const srcY = 0;
+                        const srcH = videoH;
+                        
+                        const videoRatio = videoW / videoH;
+                        const canvasRatio = canvasW / canvasH;
+
+                        if (videoRatio > canvasRatio) {
+                            coverageScale = canvasW / videoW; 
+                        } else {
+                            coverageScale = canvasH / videoH; 
+                        }
+                        
+                        const finalScale = coverageScale * scale;
+
+                        const destW = srcW * finalScale;
+                        const destH = srcH * finalScale;
+                        
+                        const destX = (canvasW - destW) / 2 + (settings.offsetX * canvasW);
+                        const destY = (canvasH - destH) / 2 + (settings.offsetY * canvasH);
+                        
+                        ctx.drawImage(video, 
+                                      srcX, srcY, srcW, srcH, 
+                                      destX, destY, destW, destH); 
+
+                        // 3. Lógica de TRIM (Detener la reproducción cuando el clip termina)
+                        if (video.currentTime >= settings.trimEnd) {
+                            video.currentTime = settings.trimStart; // Loop al inicio del clip
+                        }
+                    }
+                } catch (e) {
+                     // console.error("Error en drawFrame Single:", e.message);
+                }
+            }
+
+            requestAnimationFrame(drawFrame);
+        }
+
+
+        // --- LÓGICA DE GRABACIÓN UNIFICADA ---
+        function toggleRecording(action, type) {
+            const isSingle = type === 'single';
+            const targetCanvas = isSingle ? singleCanvas : canvas;
+            const targetVideo = isSingle ? videoSingle : videoTop; 
+            
+            const startBtnId = isSingle ? 'startRecordingSingleBtn' : 'startRecordingBtn';
+            const stopBtnId = isSingle ? 'stopRecordingSingleBtn' : 'stopRecordingBtn';
+            const downloadLinkId = isSingle ? 'downloadLinkSingle' : 'downloadLink';
+            
+            // Usamos las variables globales con un prefijo
+            const recorderVar = isSingle ? 'videoRecorderSingle' : 'videoRecorderSplit';
+            const chunksVar = isSingle ? 'recordedChunksSingle' : 'recordedChunksSplit';
+            const isRecordingVar = isSingle ? 'isRecordingSingle' : 'isRecordingSplit';
+
+            const startBtn = document.getElementById(startBtnId);
+            const stopBtn = document.getElementById(stopBtnId);
+            const downloadLink = document.getElementById(downloadLinkId);
+
+            if (action === 'start' && !window[isRecordingVar]) {
+                window[chunksVar] = [];
+                const stream = targetCanvas.captureStream(60); 
+                
+                // --- CÓDIGO CLAVE PARA EL AUDIO ---
+                // Se necesita añadir la pista de audio del video original al stream del canvas
+                
+                const audioStream = targetVideo.captureStream().getAudioTracks()[0];
+                if (audioStream) {
+                    stream.addTrack(audioStream);
+                }
+                
+                // --- FIN CÓDIGO CLAVE PARA EL AUDIO ---
+
+                try {
+                    window[recorderVar] = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+                    
+                    window[recorderVar].ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            window[chunksVar].push(event.data);
+                        }
+                    };
+                    
+                    window[recorderVar].onstop = () => {
+                        if (isSingle) targetVideo.pause(); // Pausar si es Single y se detuvo automáticamente
+                        
+                        const blob = new Blob(window[chunksVar], { type: 'video/webm' });
+                        const url = URL.createObjectURL(blob);
+                        downloadLink.href = url;
+                        downloadLink.classList.remove('hidden');
+                        downloadLink.textContent = `Descargar Video Editado ${isSingle ? '(9:16)' : '(1:2)'}`;
+                        window[isRecordingVar] = false;
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                    };
+
+                    // === LÓGICA DE INICIO ===
+                    // Para Split-Screen, usamos el TRIM START del video superior para empezar
+                    if (!isSingle) {
+                        videoTop.currentTime = compositionSettings.top.trimStart;
+                        videoBottom.currentTime = compositionSettings.bottom.trimStart;
+                        videoTop.play();
+                        videoBottom.play();
+                    }
+                    
+                    window[recorderVar].start();
+                    window[isRecordingVar] = true;
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    downloadLink.classList.add('hidden');
+                    console.log(`Grabación ${type} iniciada...`);
+
+                } catch (e) {
+                    alert('Error al iniciar la grabación. El navegador puede no soportar MediaRecorder.');
+                    console.error("Error al iniciar grabación:", e);
+                    window[isRecordingVar] = false;
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+
+            } else if (action === 'stop' && window[isRecordingVar]) {
+                if (window[recorderVar] && window[recorderVar].state !== 'inactive') {
+                    // Detener la reproducción del video
+                    videoTop.pause();
+                    videoBottom.pause();
+
+                    window[recorderVar].stop();
+                    console.log(`Grabación ${type} detenida. Procesando archivo...`);
+                    stopBtn.disabled = true;
+                }
+            }
+        }
+        
+        // NUEVA FUNCIÓN: Generar y Descargar Clip Único (Un solo botón)
+        function generateAndDownloadSingleClip() {
+            const btn = document.getElementById('generateDownloadSingleBtn');
+            const downloadLink = document.getElementById('downloadLinkSingle');
+            
+            if (!isSingleReady) {
+                alert("Por favor, cargue un video en la sección 9:16 primero.");
+                return;
+            }
+            
+            // 1. Deshabilitar el botón y mostrar el estado
+            btn.disabled = true;
+            btn.textContent = "GENERANDO CLIP...";
+            downloadLink.classList.remove('bg-green-500');
+            downloadLink.classList.add('bg-gray-600');
+            downloadLink.classList.remove('hidden');
+            downloadLink.textContent = "Procesando...";
+            
+            // 2. Iniciar la grabación (Llamando a la lógica de grabación interna)
+            const targetCanvas = singleCanvas;
+            const targetVideo = videoSingle; 
+            const chunksVar = 'recordedChunksSingle';
+            const recorderVar = 'videoRecorderSingle';
+
+            // Limpiar grabaciones anteriores
+            window[chunksVar] = [];
+            
+            // --- CÓDIGO CLAVE PARA EL AUDIO ---
+            const canvasStream = targetCanvas.captureStream(60); 
+            const audioStream = targetVideo.captureStream().getAudioTracks()[0];
+            if (audioStream) {
+                canvasStream.addTrack(audioStream);
+            }
+            // --- FIN CÓDIGO CLAVE PARA EL AUDIO ---
+
+            
+            // Calcular la duración exacta para el temporizador
+            const durationToRecord = compositionSettings.single.trimEnd - compositionSettings.single.trimStart;
+
+            // Clear any previous timeout
+            if (recordingTimeoutId) clearTimeout(recordingTimeoutId);
+            
+            try {
+                // Usamos canvasStream que ahora puede tener pista de audio
+                window[recorderVar] = new MediaRecorder(canvasStream, { mimeType: 'video/webm; codecs=vp9' });
+                
+                window[recorderVar].ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        window[chunksVar].push(event.data);
+                    }
+                };
+
+                window[recorderVar].onstop = () => {
+                    targetVideo.pause(); // Asegurar que el video se pause
+                    
+                    const blob = new Blob(window[chunksVar], { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    // 4. Habilitar la descarga
+                    downloadLink.href = url;
+                    downloadLink.download = "rcorp_video_unico_editado.webm";
+                    downloadLink.classList.add('bg-green-500');
+                    downloadLink.classList.remove('bg-gray-600');
+                    downloadLink.textContent = "Descargar Video Editado (WebM con Audio)";
+                    
+                    // 5. Restablecer el botón
+                    btn.disabled = false;
+                    btn.textContent = "Generar y Descargar Clip (9:16)";
+                };
+                
+                // --- INICIO AUTOMÁTICO DEL PROCESO ---
+                targetVideo.currentTime = compositionSettings.single.trimStart;
+                targetVideo.play();
+                window[recorderVar].start();
+                
+                console.log(`Grabación Single iniciada. Duración del clip: ${durationToRecord.toFixed(2)} segundos.`);
+
+                // 3. Detener la grabación automáticamente usando un temporizador (más fiable)
+                recordingTimeoutId = setTimeout(() => {
+                    if (window[recorderVar] && window[recorderVar].state !== 'inactive') {
+                        window[recorderVar].stop(); 
+                    }
+                }, durationToRecord * 1000 + 500); // 500ms de buffer extra por seguridad
+
+            } catch (e) {
+                alert('Error al iniciar la grabación. El navegador puede no soportar MediaRecorder.');
+                console.error("Error al iniciar grabación:", e);
+                btn.disabled = false;
+                btn.textContent = "Generar y Descargar Clip (9:16)";
+                downloadLink.classList.add('hidden');
+            }
+        }
+
+
+        // --- MANEJO DE CONTROLES DE REPRODUCCIÓN Y TIEMPO ---
+
+        function togglePlayPause(target) {
+            const video = (target === 'top') ? videoTop : (target === 'bottom') ? videoBottom : videoSingle;
+            const playIcon = document.getElementById(`playIcon${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+            const pauseIcon = document.getElementById(`pauseIcon${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+            const settings = compositionSettings[target];
+
+            // Antes de reproducir, asegurar que el video esté en el rango de trim
+            if (video.paused || video.ended) {
+                if (video.currentTime < settings.trimStart || video.currentTime >= settings.trimEnd) {
+                     video.currentTime = settings.trimStart;
+                }
+                
+                video.play().catch(e => {
+                    console.error("Error al intentar reproducir:", e);
+                });
+                playIcon.classList.add('hidden');
+                pauseIcon.classList.remove('hidden');
+            } else {
+                video.pause();
+                playIcon.classList.remove('hidden');
+                pauseIcon.classList.add('hidden');
+            }
+        }
+        
+        function toggleMute(target) {
+            const video = (target === 'top') ? videoTop : (target === 'bottom') ? videoBottom : videoSingle;
+            const volumeIcon = document.getElementById(`volumeIcon${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+            const muteIcon = document.getElementById(`muteIcon${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+
+            video.muted = !video.muted;
+            
+            if (video.muted) {
+                volumeIcon.classList.add('hidden');
+                muteIcon.classList.remove('hidden');
+            } else {
+                volumeIcon.classList.remove('hidden');
+                muteIcon.classList.add('hidden');
+            }
+        }
+
+
+        function handleTimelineUpdate(target, video) {
+            const currentTimeSpan = document.getElementById(`currentTime${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+            const timelineRange = document.getElementById(`timelineRange${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+
+            if (video.duration) {
+                currentTimeSpan.textContent = formatTime(video.currentTime);
+                timelineRange.value = video.currentTime;
+            }
+        }
+
+        function handleTimelineChange(target, video) {
+            const timelineRange = document.getElementById(`timelineRange${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+            video.currentTime = timelineRange.value;
+            
+            const settings = compositionSettings[target];
+
+            // Al mover el slider, asegurar que el tiempo no se salga del rango de trim
+            if (video.currentTime >= settings.trimEnd) {
+                video.currentTime = settings.trimEnd - 0.01;
+            }
+             if (video.currentTime < settings.trimStart) {
+                video.currentTime = settings.trimStart;
+            }
+        }
+
+        function initializeTimeline(target, video) {
+            const rangeID = `timelineRange${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`;
+            const durationID = `duration${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`;
+            const playPauseID = `playPause${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}Btn`;
+            const muteBtnID = `mute${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}Btn`; // Botón Mute
+            const panelID = `timeline${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`;
+
+            const timelineRange = document.getElementById(rangeID);
+            const durationSpan = document.getElementById(durationID);
+            const playPauseBtn = document.getElementById(playPauseID);
+            const muteBtn = document.getElementById(muteBtnID);
+            const panel = document.getElementById(panelID);
+
+            // Habilitar controles de tiempo
+            timelineRange.max = video.duration;
+            timelineRange.value = 0;
+            timelineRange.disabled = false;
+            playPauseBtn.disabled = false;
+            muteBtn.disabled = false; // Habilitar Mute
+            panel.classList.remove('opacity-50');
+
+            durationSpan.textContent = formatTime(video.duration);
+
+            // Escuchadores de evento
+            video.addEventListener('timeupdate', () => handleTimelineUpdate(target, video));
+            timelineRange.addEventListener('input', () => handleTimelineChange(target, video));
+            video.addEventListener('seeked', () => drawFrame());
+
+            // Habilitar controles de composición
+            const scaleRange = document.getElementById(`scale${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}Range`);
+            const offsetXRange = document.getElementById(`offsetX${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}Range`);
+            const offsetYRange = document.getElementById(`offsetY${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}Range`);
+            const trimControls = document.getElementById(`trimControls${target === 'top' ? 'Top' : (target === 'bottom' ? 'Bottom' : 'Single')}`);
+            
+            if (scaleRange) scaleRange.disabled = false;
+            if (offsetXRange) offsetXRange.disabled = false;
+            if (offsetYRange) offsetYRange.disabled = false;
+            if (trimControls) trimControls.classList.remove('opacity-50');
+        }
+
+        // --- LÓGICA DE INTERCAMBIO DE POSICIÓN ---
+        function toggleSwap() {
+            isSwapped = !isSwapped;
+            const btn = document.getElementById('toggleSwapBtn');
+            btn.textContent = isSwapped ? "Intercambio ACTIVO (Derecha arriba, Izquierda abajo)" : "Intercambiar Posición (Arriba/Abajo)";
+            drawFrame(); // Forzar redibujo
+        }
+
+        // --- INICIALIZACIÓN DE LA APLICACIÓN ---
+        window.onload = function () {
+            // Obtener referencias DOM
+            canvas = document.getElementById('splitScreenCanvas');
+            ctx = canvas.getContext('2d');
+            singleCanvas = document.getElementById('singleCanvas');
+            singleCtx = singleCanvas.getContext('2d');
+            
+            videoTop = document.getElementById('videoSourceTop');
+            videoBottom = document.getElementById('videoSourceBottom');
+            videoSingle = document.getElementById('videoSourceSingle'); 
+
+            // 1. Configurar listeners para la carga de archivos
+            document.getElementById('fileInputTop').addEventListener('change', (e) => loadVideo(e, 'top'));
+            document.getElementById('fileInputBottom').addEventListener('change', (e) => loadVideo(e, 'bottom'));
+            document.getElementById('fileInputSingle').addEventListener('change', (e) => loadVideo(e, 'single')); 
+            document.getElementById('fileInputImageSingle').addEventListener('change', loadBackgroundImage); 
+
+            // 2. Configurar listeners de reproducción y controles globales
+            document.getElementById('playPauseTopBtn').addEventListener('click', () => togglePlayPause('top'));
+            document.getElementById('playPauseBottomBtn').addEventListener('click', () => togglePlayPause('bottom'));
+            document.getElementById('playPauseSingleBtn').addEventListener('click', () => togglePlayPause('single')); 
+            document.getElementById('toggleSwapBtn').addEventListener('click', toggleSwap);
+            
+            // 3. Configurar listener de descarga única
+            document.getElementById('generateDownloadSingleBtn').addEventListener('click', generateAndDownloadSingleClip);
+
+
+            // 4. Configurar listeners de composición
+
+            // Split-Screen Global
+            document.getElementById('splitXRange').addEventListener('input', (e) => compositionSettings.splitX = parseFloat(e.target.value));
+            
+            // Split-Screen Top
+            document.getElementById('scaleTopRange').addEventListener('input', (e) => {
+                compositionSettings.top.scale = parseFloat(e.target.value);
+                updateSliderValue('scaleTopValue', e.target.value);
+            });
+            document.getElementById('offsetXTopRange').addEventListener('input', (e) => {
+                compositionSettings.top.offsetX = parseFloat(e.target.value);
+                updateSliderValue('offsetXTopValue', e.target.value);
+            });
+            document.getElementById('offsetYTopRange').addEventListener('input', (e) => {
+                compositionSettings.top.offsetY = parseFloat(e.target.value);
+                updateSliderValue('offsetYTopValue', e.target.value);
+            });
+            // TRIM CONTROLS TOP LISTENERS
+            document.getElementById('trimStartTopRange').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                const trimEndValue = compositionSettings.top.trimEnd;
+                if (value >= trimEndValue) { e.target.value = trimEndValue - 0.01; }
+                compositionSettings.top.trimStart = parseFloat(e.target.value);
+                document.getElementById('trimStartTopValue').textContent = formatTime(compositionSettings.top.trimStart);
+                videoTop.currentTime = compositionSettings.top.trimStart; 
+            });
+            document.getElementById('trimEndTopRange').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                const trimStartValue = compositionSettings.top.trimStart;
+                if (value <= trimStartValue) { e.target.value = trimStartValue + 0.01; }
+                compositionSettings.top.trimEnd = parseFloat(e.target.value);
+                document.getElementById('trimEndTopValue').textContent = formatTime(compositionSettings.top.trimEnd);
+                videoTop.currentTime = compositionSettings.top.trimEnd - 0.01;
+            });
+
+            
+            // Split-Screen Bottom
+            document.getElementById('scaleBottomRange').addEventListener('input', (e) => {
+                compositionSettings.bottom.scale = parseFloat(e.target.value);
+                updateSliderValue('scaleBottomValue', e.target.value);
+            });
+            document.getElementById('offsetXBottomRange').addEventListener('input', (e) => {
+                compositionSettings.bottom.offsetX = parseFloat(e.target.value);
+                updateSliderValue('offsetXBottomValue', e.target.value);
+            });
+            document.getElementById('offsetYBottomRange').addEventListener('input', (e) => {
+                compositionSettings.bottom.offsetY = parseFloat(e.target.value);
+                updateSliderValue('offsetYBottomValue', e.target.value);
+            });
+            // TRIM CONTROLS BOTTOM LISTENERS
+            document.getElementById('trimStartBottomRange').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                const trimEndValue = compositionSettings.bottom.trimEnd;
+                if (value >= trimEndValue) { e.target.value = trimEndValue - 0.01; }
+                compositionSettings.bottom.trimStart = parseFloat(e.target.value);
+                document.getElementById('trimStartBottomValue').textContent = formatTime(compositionSettings.bottom.trimStart);
+                videoBottom.currentTime = compositionSettings.bottom.trimStart; 
+            });
+            document.getElementById('trimEndBottomRange').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                const trimStartValue = compositionSettings.bottom.trimStart;
+                if (value <= trimStartValue) { e.target.value = trimStartValue + 0.01; }
+                compositionSettings.bottom.trimEnd = parseFloat(e.target.value);
+                document.getElementById('trimEndBottomValue').textContent = formatTime(compositionSettings.bottom.trimEnd);
+                videoBottom.currentTime = compositionSettings.bottom.trimEnd - 0.01;
+            });
+            
+            // Video Único (Single) - Composición
+            document.getElementById('scaleSingleRange').addEventListener('input', (e) => {
+                compositionSettings.single.scale = parseFloat(e.target.value);
+                updateSliderValue('scaleSingleValue', e.target.value);
+            });
+            document.getElementById('offsetXSingleRange').addEventListener('input', (e) => {
+                compositionSettings.single.offsetX = parseFloat(e.target.value);
+                updateSliderValue('offsetXSingleValue', e.target.value);
+            });
+            document.getElementById('offsetYSingleRange').addEventListener('input', (e) => {
+                compositionSettings.single.offsetY = parseFloat(e.target.value);
+                updateSliderValue('offsetYSingleValue', e.target.value);
+            });
+            
+            // TRIM CONTROLS LISTENERS (DURACIÓN)
+            document.getElementById('trimStartRange').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                const trimEndValue = compositionSettings.single.trimEnd;
+                // Asegurar que el inicio no sea mayor que el final
+                if (value >= trimEndValue) {
+                    e.target.value = trimEndValue - 0.01;
+                }
+                compositionSettings.single.trimStart = parseFloat(e.target.value);
+                document.getElementById('trimStartValue').textContent = formatTime(compositionSettings.single.trimStart);
+                videoSingle.currentTime = compositionSettings.single.trimStart; // Ir al nuevo inicio
+            });
+
+            document.getElementById('trimEndRange').addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                const trimStartValue = compositionSettings.single.trimStart;
+                 // Asegurar que el final no sea menor que el inicio
+                if (value <= trimStartValue) {
+                    e.target.value = trimStartValue + 0.01;
+                }
+                compositionSettings.single.trimEnd = parseFloat(e.target.value);
+                document.getElementById('trimEndValue').textContent = formatTime(compositionSettings.single.trimEnd);
+                videoSingle.currentTime = compositionSettings.single.trimEnd - 0.01; // Ir al nuevo fin
+            });
+
+
+            // 5. Configurar listeners de grabación Split-Screen (los botones siguen existiendo)
+            document.getElementById('startRecordingBtn').addEventListener('click', () => toggleRecording('start', 'split'));
+            document.getElementById('stopRecordingBtn').addEventListener('click', () => toggleRecording('stop', 'split'));
+            
+            // Inicializar valores al cargar
+            updateSliderValue('scaleSingleValue', compositionSettings.single.scale);
+            updateSliderValue('offsetXSingleValue', compositionSettings.single.offsetX);
+            updateSliderValue('offsetYSingleValue', compositionSettings.single.offsetY);
+            updateSliderValue('scaleTopValue', compositionSettings.top.scale);
+            updateSliderValue('offsetXTopValue', compositionSettings.top.offsetX);
+            updateSliderValue('offsetYTopValue', compositionSettings.top.offsetY);
+            updateSliderValue('scaleBottomValue', compositionSettings.bottom.scale);
+            updateSliderValue('offsetXBottomValue', compositionSettings.bottom.offsetX);
+            updateSliderValue('offsetYBottomValue', compositionSettings.bottom.offsetY);
+            document.getElementById('trimStartTopValue').textContent = formatTime(compositionSettings.top.trimStart);
+            document.getElementById('trimEndTopValue').textContent = formatTime(compositionSettings.top.trimEnd);
+            document.getElementById('trimStartBottomValue').textContent = formatTime(compositionSettings.bottom.trimStart);
+            document.getElementById('trimEndBottomValue').textContent = formatTime(compositionSettings.bottom.trimEnd);
+
+            // Cargar imagen de fondo predeterminada (desde Imgur URL)
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+                backgroundImageSingle = img;
+            };
+            img.src = DEFAULT_IMGUR_URL;
+
+            // Iniciar el loop de dibujo (esperará a que los videos estén listos)
+            requestAnimationFrame(drawFrame);
+        };
+    </script>
+</body>
+</html>
